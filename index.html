@@ -194,6 +194,9 @@ mark{background:#FFE58A;padding:0 1px}
 [data-theme="dark"] .pq.cur{outline-color:var(--gold)}
 @media print{[data-theme="dark"]{--paper:#fff;--card:#fff;--text:#000;--ink:#1B2559;--muted:#444;--line:#ccc}}
 @media (max-width:520px){.lsw button{padding:3px 6px;font-size:.72rem}.hside{gap:6px}}
+.sa-opts{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;background:var(--gold-soft);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:.9rem}
+.sa-opts select{border:1px solid var(--line);border-radius:8px;padding:3px 6px;font:inherit;background:var(--card);color:var(--text)}
+.sa-live{color:var(--muted);font-size:.82rem}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 <link rel="manifest" href="manifest.json">
@@ -270,6 +273,7 @@ function topicStats(sub,t){
 
 function home(){
   $('#subjects').style.display=S.mode==='mock'?'none':'';
+  saStop();
   if(S.mode==='mock'){mock();return;}
   mkStop();
   if(S.mode==='book'){book();return;}
@@ -327,13 +331,26 @@ function bindStar(q){$('#star').onclick=e=>{const k=key(q.sub,q.n);if(S.stars[k]
 
 // STUDY MODE
 let hideAns=false;
+// ===== STUDY AUTO-READ (చూస్తూ, వింటూ చదువు) =====
+let SA={on:false,tok:0,tm:null};
+function saStop(){SA.on=false;SA.tok++;clearTimeout(SA.tm);try{synth&&synth.cancel();}catch(e){}}
+function saCfg(){S.sa=S.sa||{rate:1,ex:0};return S.sa;}
+function saSay(parts,done){const t=++SA.tok;try{synth.cancel();}catch(e){}const Q=lsChunks(parts);
+  const nx=()=>{if(t!==SA.tok||!SA.on)return;if(!Q.length){done();return;}const [l,x]=Q.shift();const u=new SpeechSynthesisUtterance(x);
+    const v=lsVoice(l);if(v){u.voice=v;u.lang=v.lang;}else u.lang=l==='te'?'te-IN':l==='hi'?'hi-IN':'en-IN';u.rate=saCfg().rate;u.onend=nx;u.onerror=nx;synth.speak(u);};
+  setTimeout(nx,150);}
+function saParts(q){const L=S.lang==='en'?'en':'te';const sv=S.cur;S.cur=q.sub;let P;
+  try{P=lsParts(q,['en','spen','sphi'].includes(q.sub)?(saCfg().ex?'te':'en'):L);}finally{S.cur=sv;}
+  if(saCfg().ex&&q.e&&!['en','spen'].includes(q.sub))P.push([q.sub==='sphi'?'hi':'te','వివరణ. '+lsClean(q.e.replace(/\n/g,'. '))]);
+  return P;}
 function study(list,label,idx){
   timerStop();
   if(!list.length){app.innerHTML=`<button class="back" id="bk">← వెనక్కి</button><div class="empty">ఇక్కడ ప్రశ్నలు లేవు.</div>`;$('#bk').onclick=home;return;}
-  const q=list[idx];let revealed=!hideAns;
+  const q=list[idx];let revealed=SA.on?false:!hideAns;
   function draw(){
     app.innerHTML=`<button class="back" id="bk">← టాపిక్స్</button>
-    <div class="bar"><button class="btn small ${hideAns?'':'alt'}" id="hm">${hideAns?'సమాధానాలు దాచబడ్డాయి – నొక్కి చూడండి':'స్వీయ పరీక్ష: సమాధానాలు దాచు'}</button></div>
+    <div class="bar"><button class="btn small ${SA.on?'gold':''}" id="sa">${SA.on?'⏸ ఆటో ఆపు':'🔊 ఆటో – చూస్తూ వింటూ చదువు'}</button>${SA.on?'':`<button class="btn small ${hideAns?'':'alt'}" id="hm">${hideAns?'సమాధానాలు దాచబడ్డాయి – నొక్కి చూడండి':'స్వీయ పరీక్ష: సమాధానాలు దాచు'}</button>`}</div>
+    ${SA.on?`<div class="sa-opts"><label>వేగం <select id="sar">${[0.75,0.9,1,1.15,1.3,1.5].map(r=>`<option value="${r}" ${saCfg().rate==r?'selected':''}>${r}×</option>`).join('')}</select></label><label><input type="checkbox" id="sae" ${saCfg().ex?'checked':''}> వివరణ కూడా చదువు</label><span class="sa-live">🔊 ప్రశ్న చదివి, 2 సెకన్ల తర్వాత సమాధానం చూపి చదువుతుంది</span></div>`:''}
     <div class="qbar"><i style="width:${(idx+1)/list.length*100}%"></i></div>
     <div class="card">${qTop(q,label)}
       <div class="opts">${q.o.map((o,i)=>optHTML(q,i,revealed&&i===q.a-1?'ok':'',revealed)).join('')}</div>
@@ -343,10 +360,16 @@ function study(list,label,idx){
         ${revealed?'':'<button class="btn gold" id="sh">సమాధానం చూపు</button>'}
         <button class="btn" id="nx" ${idx<list.length-1?'':'disabled'}>తర్వాత →</button></div>
     </div>`;
-    $('#bk').onclick=home;bindStar(q);
-    $('#hm').onclick=()=>{hideAns=!hideAns;study(list,label,idx);};
+    $('#bk').onclick=()=>{saStop();home();};bindStar(q);
+    if($('#hm'))$('#hm').onclick=()=>{hideAns=!hideAns;study(list,label,idx);};
     $('#pv').onclick=()=>study(list,label,idx-1);
     $('#nx').onclick=()=>study(list,label,idx+1);
+    $('#sa').onclick=()=>{if(!synth){alert('ఈ బ్రౌజర్‌లో వినే సదుపాయం లేదు. Chrome లో తెరవండి.');return;}if(SA.on){saStop();draw();}else{SA.on=true;study(list,label,idx);}};
+    if(SA.on){$('#sar').onchange=e=>{saCfg().rate=+e.target.value;save();study(list,label,idx);};
+      $('#sae').onchange=e=>{saCfg().ex=e.target.checked?1:0;save();study(list,label,idx);};
+      clearTimeout(SA.tm);const P=saParts(q);
+      if(!revealed)saSay(P.slice(0,1),()=>{SA.tm=setTimeout(()=>{if(!SA.on)return;revealed=true;draw();},2000);});
+      else saSay(P.slice(1),()=>{SA.tm=setTimeout(()=>{if(!SA.on)return;if(idx<list.length-1)study(list,label,idx+1);else{saStop();draw();}},1500);});}
     if(!revealed){
       $('#sh').onclick=()=>{revealed=true;draw();};
       app.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;const ok=i===q.a-1;record(q,ok);revealed=true;draw();
